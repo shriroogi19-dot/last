@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alcohol Detection & Engine Lock</title>
+<style>
+:root{--bg:#0f172a;--panel:#1e293b;--line:#334155;--text:#e2e8f0;--mute:#94a3b8;--ok:#22c55e;--bad:#ef4444;--accent:#38bdf8}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Arial;background:var(--bg);color:var(--text);line-height:1.45}
+header{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}header h1{font-size:1.1rem;margin:0}header small{color:var(--mute)}
+main{max-width:1100px;margin:auto;padding:16px;display:grid;gap:16px}@media(min-width:900px){main{grid-template-columns:1.1fr .9fr}.full{grid-column:1/-1}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}.panel h2{font-size:.95rem;margin:18px 0 12px;color:var(--accent);text-transform:uppercase}
+#card{text-align:center;padding:28px 16px;border-radius:14px;border:2px solid var(--line)}#card.safe{border-color:var(--ok);background:#22c55012}#card.alert{border-color:var(--bad);background:#ef444422}
+#stateText{font-size:2rem;font-weight:800}#card.safe #stateText{color:var(--ok)}#card.alert #stateText{color:var(--bad)}#stateSub{color:var(--mute)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.stat{background:#0b1220;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}.stat b{display:block}.stat span{font-size:.75rem;color:var(--mute)}
+button{background:#334155;color:var(--text);border:0;border-radius:9px;padding:10px 14px;cursor:pointer}button.pri{background:#0284c7}button.danger{background:#b91c1c}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+label{display:block;font-size:.8rem;color:var(--mute);margin:10px 0 4px}input,textarea{width:100%;background:#0b1220;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px;font:inherit}input[type=checkbox]{width:auto}
+.two{display:grid;grid-template-columns:1fr auto;gap:10px}#log{background:#020617;border:1px solid var(--line);border-radius:10px;height:190px;overflow:auto;padding:8px;font:12px/1.5 monospace}
+.hint{font-size:.78rem;color:var(--mute)}ul{list-style:none;margin:8px 0;padding:0}li{display:flex;justify-content:space-between;background:#0b1220;border:1px solid var(--line);border-radius:8px;padding:7px;margin-bottom:6px}
+.badge{padding:3px 9px;border-radius:99px;font-size:.75rem;background:#334155}.ok{background:#14532d;color:#bbf7d0}.bad{background:#7f1d1d;color:#fecaca}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:7px;border-bottom:1px solid var(--line)}[hidden]{display:none!important}body.alarm{animation:flash .7s infinite}@keyframes flash{50%{background:#450a0a}}
+</style></head>
+<body>
+<header><h1>🚗 Alcohol Detection &amp; Engine Lock System</h1><small>Live monitor · ntfy phone notifications</small><span style="margin-left:auto" class="badge" id="conn">Not connected</span><span class="badge" id="backend">Notification server: checking…</span></header>
+<main>
+<section class="panel">
+<div id="card"><div id="stateText">WAITING</div><div id="stateSub">Connect to ESP32 to start monitoring</div>
+<div class="stats"><div class="stat"><b id="reading">–</b><span>Sensor value</span></div><div class="stat"><b id="engine">–</b><span>Engine</span></div><div class="stat"><b id="lastNotice">–</b><span>Last notification</span></div></div>
+<div class="row"><button id="silence" class="danger">Silence alarm</button></div></div>
+<h2>Connect to ESP32</h2><div class="row"><button class="pri" id="connect">Bluetooth Classic / USB Serial</button><button id="disconnect" hidden>Disconnect</button></div>
+<p class="hint">Use Chrome/Edge on Windows over HTTPS. Pair Bluetooth first, then select the outgoing Bluetooth COM port. Baud rate must match ESP32.</p>
+<h2>Live data from ESP32</h2><div id="log"></div>
+<div class="row"><button id="testSafe">Test safe</button><button class="danger" id="testAlert">Test alcohol alert</button><button id="testNotice">Send test notification</button></div>
+</section>
+<section class="panel">
+<h2>Phone notifications (ntfy)</h2>
+<p class="hint">Install the ntfy app on your phone, subscribe to the same private topic, and keep the topic name secret.</p>
+<p class="hint">The private topic is stored only in Vercel. Subscribe to that same topic in your ntfy phone app; you do not need to enter it here.</p>
+<label>Vehicle name / number</label><input id="vehicle" placeholder="e.g. MH 12 AB 1234">
+<label>Optional access code (must match Vercel ACCESS_CODE if configured)</label><input id="code" type="password" autocomplete="off">
+<label><input type="checkbox" id="auto" checked> Send notification automatically on alert</label>
+<label>Alert keywords</label><input id="alerts" value="ALCOHOL DETECTED,ALCOHOL-MOTOR OFF">
+<label>Safe keywords</label><input id="safe" value="SAFE - MOTOR ON,SYSTEM SAFE,NO ALCOHOL">
+<label>Serial baud rate</label><input id="baud" type="number" value="115200">
+<p class="hint">Topic and settings are stored only in this browser. Use a long random topic (at least 32 random characters). Do not post it publicly.</p>
+</section>
+<section class="panel full"><h2>Alert history</h2><table><thead><tr><th>Time</th><th>Event</th><th>Notification</th></tr></thead><tbody id="history"><tr><td colspan="3">No alerts yet</td></tr></tbody></table><div class="row"><button id="clear">Clear history</button></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const keys=['vehicle','code','auto','alerts','safe','baud'];
+for(const k of keys){const el=$('#'+k),saved=localStorage.getItem('ntfy.'+k);if(saved!==null){if(el.type==='checkbox')el.checked=saved==='true';else el.value=saved;}el.addEventListener('change',()=>localStorage.setItem('ntfy.'+k,el.type==='checkbox'?String(el.checked):el.value.trim()));}
+let history=JSON.parse(localStorage.getItem('ntfy.history')||'[]'),port=null,reader=null,buffer='',latched=false,lastNotice=0;
+function log(t){const d=document.createElement('div');d.textContent=new Date().toLocaleTimeString()+' '+t;$('#log').append(d);$('#log').scrollTop=$('#log').scrollHeight;}
+function saveHistory(){localStorage.setItem('ntfy.history',JSON.stringify(history));}
+function render(){const tb=$('#history');tb.replaceChildren();history.slice().reverse().forEach(h=>{const tr=document.createElement('tr');[h.time,h.event,h.status].forEach(x=>{const td=document.createElement('td');td.textContent=x;tr.append(td)});tb.append(tr)});if(!history.length)tb.innerHTML='<tr><td colspan="3">No alerts yet</td></tr>';}
+function hist(event,status){history.push({time:new Date().toLocaleString(),event,status});history=history.slice(-50);saveHistory();render();}
+function state(s){$('#card').className=s;$('#stateText').textContent=s==='alert'?'⚠ ALCOHOL DETECTED':s==='safe'?'SAFE':'WAITING';$('#stateSub').textContent=s==='alert'?'Engine cut-off reported by ESP32':s==='safe'?'No alcohol detected':'Connect to ESP32';$('#engine').textContent=s==='alert'?'CUT OFF':s==='safe'?'Can run':'–';}
+async function ping(){try{const r=await fetch('/api/health');const j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||'Unavailable');$('#backend').textContent='Notification server: online';$('#backend').className='badge ok';}catch(e){$('#backend').textContent='Notification server: offline';$('#backend').className='badge bad';}}
+async function notify(test,line='Manual test'){
+const vehicle=$('#vehicle').value.trim()||'vehicle';const message=(test?'TEST: ':'')+'ALERT: Alcohol detected in '+vehicle+'. Engine has been switched OFF. Time: '+new Date().toLocaleString()+'. '+(line||'');
+const headers={'Content-Type':'application/json'};if($('#code').value.trim())headers['x-access-code']=$('#code').value.trim();
+try{const r=await fetch('/api/notify',{method:'POST',headers,body:JSON.stringify({topic,message,title:test?'Alcohol detector test':'ALCOHOL DETECTED',priority:test?3:5})});const j=await r.json().catch(()=>({}));if(!r.ok||!j.ok)throw Error(j.error||'Notification request failed');log('Notification accepted by ntfy');$('#lastNotice').textContent=new Date().toLocaleTimeString();if(!test)hist(line||'Alcohol detected','Sent to ntfy');else log('Test notification accepted. Check your phone.');}catch(e){log('Notification failed: '+e.message);if(!test)hist(line||'Alcohol detected','Failed: '+e.message);}}
+function parse(line){log(line);const m=line.match(/\b\d{1,4}\b/);if(m)$('#reading').textContent=m[0];const u=line.toUpperCase();if(u.includes('SAFE - MOTOR ON')||u.includes('SYSTEM SAFE')||u.includes('NO ALCOHOL')){latched=false;state('safe');document.body.classList.remove('alarm');}else if(u.includes('ALCOHOL DETECTED')||u.includes('ALCOHOL-MOTOR OFF')){state('alert');document.body.classList.add('alarm');if(!latched){latched=true;hist('Alcohol detected: '+line,'Pending');if($('#auto').checked&&Date.now()-lastNotice>30000){lastNotice=Date.now();notify(false,line);}}}}
+function feed(s){buffer+=s;const parts=buffer.split(/\r?\n/);buffer=parts.pop();parts.forEach(x=>x.trim()&&parse(x.trim()));}
+$('#connect').onclick=async()=>{if(!('serial'in navigator))return alert('Use Chrome or Edge on Windows over HTTPS.');try{port=await navigator.serial.requestPort();await port.open({baudRate:Number($('#baud').value)||115200});const decoder=new TextDecoderStream();port.readable.pipeTo(decoder.writable).catch(()=>{});reader=decoder.readable.getReader();$('#conn').textContent='Connected (Serial)';$('#conn').className='badge ok';$('#disconnect').hidden=false;log('Serial connected');(async()=>{try{while(true){const {value,done}=await reader.read();if(done)break;if(value)feed(value);}}catch(e){log('Serial read error: '+e.message);}})();}catch(e){log('Connection failed: '+e.message);}};
+$('#disconnect').onclick=async()=>{try{if(reader){await reader.cancel();reader.releaseLock();reader=null;}if(port){await port.close();port=null;}}catch{}$('#conn').textContent='Disconnected';$('#conn').className='badge';$('#disconnect').hidden=true;};
+$('#testNotice').onclick=()=>notify(true);$('#testSafe').onclick=()=>{latched=false;state('safe');document.body.classList.remove('alarm');log('TEST SAFE');};$('#testAlert').onclick=()=>{state('alert');document.body.classList.add('alarm');if(!latched){latched=true;hist('Dashboard test alert','Pending');if($('#auto').checked)notify(false,'Dashboard test alert');}};$('#silence').onclick=()=>document.body.classList.remove('alarm');$('#clear').onclick=()=>{history=[];saveHistory();render();};
+render();ping();setInterval(ping,60000);
+</script></body></html>
