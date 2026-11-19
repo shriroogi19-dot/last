@@ -64,7 +64,34 @@ function parse(line){log(line);const m=line.match(/\b\d{1,4}\b/);if(m)$('#readin
 function feed(s){buffer+=s;const parts=buffer.split(/\r?\n/);buffer=parts.pop();parts.forEach(x=>x.trim()&&parse(x.trim()));}
 $('#connect').onclick=async()=>{if(!('serial'in navigator))return alert('Use Chrome or Edge on Windows over HTTPS.');try{port=await navigator.serial.requestPort();await port.open({baudRate:Number($('#baud').value)||115200});const decoder=new TextDecoderStream();port.readable.pipeTo(decoder.writable).catch(()=>{});reader=decoder.readable.getReader();$('#conn').textContent='Connected (Serial)';$('#conn').className='badge ok';$('#disconnect').hidden=false;log('Serial connected');(async()=>{try{while(true){const {value,done}=await reader.read();if(done)break;if(value)feed(value);}}catch(e){log('Serial read error: '+e.message);}})();}catch(e){log('Connection failed: '+e.message);}};
 $('#disconnect').onclick=async()=>{try{if(reader){await reader.cancel();reader.releaseLock();reader=null;}if(port){await port.close();port=null;}}catch{}$('#conn').textContent='Disconnected';$('#conn').className='badge';$('#disconnect').hidden=true;};
-$('#testNotice').onclick=()=>notify(true);$('#testSafe').onclick=()=>{latched=false;state('safe');document.body.classList.remove('alarm');log('TEST SAFE');};$('#testAlert').onclick=()=>{state('alert');document.body.classList.add('alarm');if(!latched){latched=true;hist('Dashboard test alert','Pending');if($('#auto').checked)notify(false,'Dashboard test alert');}};async function silenceBoth() {    // Stop website alarm   document.body.classList.remove('alarm');    // Send silence command to ESP32   if (!port || !port.writable) {     log('Website alarm silenced, but ESP32 is not connected.');     return;   }    try {     const writer = port.writable.getWriter();      await writer.write(       new TextEncoder().encode('SILENCE_BUZZER
-')     );      writer.releaseLock();      log('Website and ESP32 buzzer silenced successfully.');    } catch (error) {     log('Buzzer silence failed: ' + error.message);   } }  $('#silence').onclick = silenceBoth;$('#clear').onclick=()=>{history=[];saveHistory();render();};
+$('#testNotice').onclick=()=>notify(true);$('#testSafe').onclick=()=>{latched=false;state('safe');document.body.classList.remove('alarm');log('TEST SAFE');};$('#testAlert').onclick=()=>{state('alert');document.body.classList.add('alarm');if(!latched){latched=true;hist('Dashboard test alert','Pending');if($('#auto').checked)notify(false,'Dashboard test alert');}};async function silenceBoth() {
+
+  document.body.classList.remove('alarm');
+
+  if (!port || !port.writable) {
+    log('Website alarm silenced, but ESP32 is not connected.');
+    return;
+  }
+
+  try {
+    const writer = port.writable.getWriter();
+
+    await writer.write(
+      new TextEncoder().encode('SILENCE_BUZZER\n')
+    );
+
+    writer.releaseLock();
+
+    log('Website and ESP32 buzzer silenced successfully.');
+
+  } catch (error) {
+    log('Buzzer silence failed: ' + error.message);
+  }
+}
+
+// ADD THIS LINE
+$('#silence').onclick = silenceBoth;
+
+$('#clear').onclick=()=>{history=[];saveHistory();render();};$('#clear').onclick=()=>{history=[];saveHistory();render();};
 render();ping();setInterval(ping,60000);
 </script></body></html>
